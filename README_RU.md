@@ -44,7 +44,7 @@ pip install telethon aiohttp aiosqlite PyQt6
 
 ## 3. Первый запуск и авторизация
 
-1. Запусти FiaskoAI
+1. Запусти FiaskoAI.exe
 2. Введи `API_ID` и `API_HASH`
 3. Пройди авторизацию Telegram
 4. После входа создастся файл сессии:
