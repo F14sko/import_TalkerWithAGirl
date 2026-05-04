@@ -46,7 +46,7 @@ Before the first launch, you need to register:
 
 ## 3. First launch and authorization
 
-1. Run the application
+1. Run the FiaskoAI.exe
 2. Enter `API_ID` and `API_HASH`
 3. Complete Telegram authorization
 4. After login, a session file will be created:
