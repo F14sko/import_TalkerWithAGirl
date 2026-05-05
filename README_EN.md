@@ -11,15 +11,9 @@ The program analyzes incoming messages, builds conversation context, and generat
 
 # 📖 Instructions for using TalkerWithAGirl
 
-## 1. Install dependencies
-
-```bash
-pip install telethon aiohttp aiosqlite PyQt6
-```
-
 ---
 
-## 2. Registration and obtaining keys
+## 1. Registration and obtaining keys
 
 Before the first launch, you need to register:
 
@@ -44,7 +38,7 @@ Before the first launch, you need to register:
 
 ---
 
-## 3. First launch and authorization
+## 2. First launch and authorization
 
 1. Run the FiaskoAI.exe
 2. Enter `API_ID` and `API_HASH`
@@ -57,7 +51,7 @@ session.session
 
 ---
 
-## 4. Configuration setup
+## 3. Configuration setup
 
 All settings are configured directly in the app:
 
@@ -67,14 +61,14 @@ Open ⚙️ **Settings** and fill in:
 * API HASH
 * Groq API Key
 * Self description (MY_BIO)
-* PROMPT_INTRO (dialog start mode)
-* PROMPT_CHAT (chat mode)
+* PROMPT_INTRO (first mode)
+* PROMPT_CHAT (second mode)
 
 👉 After saving, everything is applied automatically
 
 ---
 
-## 5. Bot startup
+## 4. Bot startup
 
 Press the button:
 
@@ -90,13 +84,13 @@ After launch, the bot:
 
 ---
 
-## 6. Adding chats
+## 5. Adding chats
 
 Click **Add Chat** and confirm adding it
 
 ---
 
-## 7. Chat management
+## 6. Chat management
 
 For each chat, the following options are available:
 
@@ -286,6 +280,12 @@ Used in active conversations:
 * `aiosqlite` — database
 * `PyQt6` — UI
 * `asyncio` — asynchronous execution
+
+Install dependencies
+
+```bash
+pip install telethon aiohttp aiosqlite PyQt6
+```
 
 ---
 
