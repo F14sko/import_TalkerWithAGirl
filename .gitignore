@@ -1,0 +1,17 @@
+.venv/
+*.session
+*.session-journal
+*.log
+*.db
+*.db-shm
+*.db-wal
+config.json
+.DS_Store
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+avatar/*.jpg
+avatar/*.jpeg
+avatar/*.png
+!avatar/ava.png
