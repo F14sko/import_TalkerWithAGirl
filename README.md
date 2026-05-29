@@ -28,14 +28,6 @@ Before the first launch, you need to register:
 * API_ID
 * API_HASH
 
-🤖 Groq API (AI key)
-
-1. Go to:
-   [https://console.groq.com](https://console.groq.com)
-2. Sign up / log in
-3. Create an API Key
-4. Copy the key for use in the application
-
 ---
 
 ## 2. First launch and authorization
@@ -59,7 +51,7 @@ Open ⚙️ **Settings** and fill in:
 
 * API ID
 * API HASH
-* Groq API Key
+* API Key
 * Self description (MY_BIO)
 * PROMPT_INTRO (first mode)
 * PROMPT_CHAT (second mode)
@@ -99,7 +91,13 @@ For each chat, the following options are available:
 * LAN — language (RU / EN)
 * ⋮ — additional actions
 
+## 👤 Profile and Avatars
+
+* **Avatars directory**: All downloaded and default avatars are stored in the `avatar/` folder.
+* **Custom avatar**: You can change your profile avatar by clicking on it in the **Profile** tab and choosing an image from your computer.
+
 ---
+
 
 ## ⚠️ Important
 
@@ -171,11 +169,12 @@ SQLite is used to store:
 
 ### AI response generation
 
-Uses Groq API:
+Supports multiple AI Models (Gemini, ChatGPT, Llama, Groq) via API keys:
 
-```python
-model = "llama-3.1-8b-instant"
-```
+* **Gemini**: `gemini-1.5-flash`
+* **ChatGPT**: `gpt-4o-mini`
+* **Llama**: `llama-3.1-8b-instant`
+* **Groq**: `mixtral-8x7b-32768`
 
 The request includes:
 
