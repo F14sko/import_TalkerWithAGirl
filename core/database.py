@@ -48,6 +48,12 @@ async def init_db():
         )
     except Exception:
         pass
+    try:
+        await database.execute(
+            "ALTER TABLE profiles ADD COLUMN selected_prompt TEXT DEFAULT ''"
+        )
+    except Exception:
+        pass
     await database.execute(
         "CREATE TABLE IF NOT EXISTS messages ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER, "
@@ -136,3 +142,30 @@ async def get_profile_bio_text():
     if not parts:
         return ""
     return f"{header}\n" + "\n".join(parts)
+
+
+async def get_prompt_for_chat(chat_id):
+    from core.config import conf
+    async with db.execute(
+        "SELECT bot_mode, selected_prompt FROM profiles WHERE user_id=?",
+        (chat_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    
+    prompts = conf.get("PROMPTS", {})
+    if not row:
+        if prompts:
+            return list(prompts.values())[0]
+        return ""
+        
+    bot_mode, selected_prompt = row
+    if selected_prompt and selected_prompt in prompts:
+        return prompts[selected_prompt]
+        
+    prompt_names = list(prompts.keys())
+    if bot_mode is not None and 0 <= bot_mode < len(prompt_names):
+        return prompts[prompt_names[bot_mode]]
+        
+    if prompts:
+        return list(prompts.values())[0]
+    return ""

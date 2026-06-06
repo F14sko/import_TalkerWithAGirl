@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 
 import aiohttp
 
@@ -86,7 +87,7 @@ async def call_groq_api(prompt):
 
 async def generate_ai_summary(text_history):
     prompt = (
-        f"Проанализируй переписку и сделай краткий пересказ на русском. "
+        f"Проанализируй переписку и сделай краткий пересказ на языке переписки. "
         f"Ключевые темы и итоги.\n\nПереписка:\n{text_history}"
     )
     return await call_groq_api(prompt)
@@ -114,3 +115,115 @@ async def extract_hobbies(text):
         signals.error_signal.emit("ERR_JSON_PARSE")
 
     return []
+
+
+async def transcribe_audio_file(file_path):
+    global http_session
+    
+    selected_api = conf.get("SELECTED_API", "groq").strip().lower()
+    actual_api_key = conf.get("API_KEY", "")
+    
+    if selected_api == "chatgpt":
+        url = "https://api.openai.com/v1/audio/transcriptions"
+        model = "whisper-1"
+    else:
+        url = "https://api.groq.com/openai/v1/audio/transcriptions"
+        model = "whisper-large-v3"
+        
+    headers = {
+        "Authorization": f"Bearer {actual_api_key}",
+    }
+    
+    data = aiohttp.FormData()
+    try:
+        with open(file_path, 'rb') as f:
+            file_bytes = f.read()
+        data.add_field('file', file_bytes, filename=os.path.basename(file_path))
+        data.add_field('model', model)
+    except Exception as exc:
+        print("Failed to read audio file for transcription:", exc)
+        return ""
+    
+    try:
+        async with http_session.post(url, headers=headers, data=data, timeout=30) as resp:
+            if resp.status == 200:
+                res_data = await resp.json()
+                return res_data.get("text", "").strip()
+            else:
+                err_text = await resp.text()
+                print(f"STT error {resp.status}: {err_text}")
+                return ""
+    except Exception as exc:
+        print("STT Exception:", exc)
+        return ""
+
+
+async def describe_image_or_frames(images_b64, media_type):
+    global http_session
+    
+    if not images_b64:
+        return ""
+        
+    selected_api = conf.get("SELECTED_API", "groq").strip().lower()
+    api_cfg = API_CONFIGS.get(selected_api, API_CONFIGS["groq"])
+    
+    url = api_cfg["url"]
+    actual_api_key = conf.get("API_KEY", "")
+    
+    if selected_api == "groq" or selected_api == "llama":
+        model = "llama-3.2-11b-vision-preview"
+    else:
+        model = api_cfg["model"]
+        
+    headers = {
+        "Authorization": f"Bearer {actual_api_key}",
+        "Content-Type": "application/json",
+    }
+    
+    prompt_text = (
+        "This is an image/frame from our Telegram chat. "
+        "Describe briefly (in 1-2 short sentences) what is shown on this image "
+        "(e.g., people, objects, emotions, environment) so that the chatbot can understand the context. "
+        "Respond in Russian."
+    )
+    if media_type == "video" or media_type == "video_note":
+        prompt_text = (
+            "These are sequential frames from a video message. "
+            "Briefly describe what is happening in the video (actions, scene, emotions). "
+            "Respond in Russian, in 1-2 short sentences."
+        )
+        
+    content = [{"type": "text", "text": prompt_text}]
+    
+    for img in images_b64:
+        content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/jpeg;base64,{img}"
+            }
+        })
+        
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": content
+            }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 150,
+    }
+    
+    try:
+        async with http_session.post(url, headers=headers, json=payload, timeout=40) as resp:
+            if resp.status == 200:
+                res_data = await resp.json()
+                return res_data["choices"][0]["message"]["content"].strip()
+            else:
+                err_text = await resp.text()
+                print(f"Vision API error {resp.status}: {err_text}")
+                return ""
+    except Exception as exc:
+        print("Vision API Exception:", exc)
+        return ""

@@ -87,9 +87,9 @@ Click **Add Chat** and confirm adding it
 For each chat, the following options are available:
 
 * ON / OFF — enable bot
-* 1 / 2 — chat mode
-* LAN — language (RU / EN)
-* ⋮ — additional actions
+* Prompt 1 / 2 — toggle between prompts configured in settings
+* Formal / Casual - toggle between formal and informal communication style. In formal, all punctuation is preserved; in informal, it is removed
+* Sync chat - downloads the chat history from Telegram and adds it to the database
 
 ## 👤 Profile and Avatars
 
@@ -101,7 +101,7 @@ For each chat, the following options are available:
 
 ## ⚠️ Important
 
-* without Groq API Key the bot will not respond
+* without API Key the bot will not respond
 * without Telegram session, operation is impossible
 * internet connection is required
 * deleting session = re-login required
@@ -130,19 +130,7 @@ session.session
 
 It stores the Telegram session authentication.
 
----
 
-### Message processing
-
-When a new message is received:
-
-* checks that the chat is private
-* saves the message to SQLite
-* cleans unnecessary symbols
-* detects language (RU / EN)
-* updates conversation context
-
----
 
 ### Database
 
@@ -228,19 +216,7 @@ The user defines them via configuration:
 "PROMPT_CHAT": "..."
 ```
 
-### 🔹 PROMPT_INTRO
-
-Used for starting a dialogue:
-
-* defines the style of first contact
-* determines AI behavior at the beginning of communication
-
-### 🔹 PROMPT_CHAT
-
-Used in active conversations:
-
-* communication style
-* tone, brevity, response manner
+You can write it yourself and use it in any dialogue by simply enabling the desired prompt.
 
 👉 Essentially, modes = custom prompts, not hardcoded logic.
 
@@ -248,13 +224,13 @@ Used in active conversations:
 
 ## 📡 Errors
 
-### Groq API
+### API
 
-* `ERR_GROQ_401` — invalid API key
-* `ERR_GROQ_403` — access denied
-* `ERR_GROQ_429` — request limit exceeded
-* `ERR_GROQ_500` — server error
-* `ERR_GROQ_CONNECTION` — no connection
+* `ERR_API_401` — invalid API key
+* `ERR_API_403` — access denied
+* `ERR_API_429` — request limit exceeded
+* `ERR_API_500` — server error
+* `ERR_API_CONNECTION` — no connection
 
 ---
 
@@ -274,16 +250,10 @@ Used in active conversations:
 
 ## 🔧 Dependencies
 
-* `telethon` — Telegram API
-* `aiohttp` — HTTP requests
-* `aiosqlite` — database
-* `PyQt6` — UI
-* `asyncio` — asynchronous execution
-
 Install dependencies
 
 ```bash
-pip install telethon aiohttp aiosqlite PyQt6
+pip install -r requirements.txt
 ```
 
 ---
@@ -297,8 +267,12 @@ config.json
 Contains:
 
 * Telegram API keys
-* Groq API key
+* API key
 * user biography
+* models
+* theme
+* language
+* timezone
 * PROMPT_INTRO (mode 1)
 * PROMPT_CHAT (mode 2)
 

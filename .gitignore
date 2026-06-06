@@ -15,3 +15,4 @@ avatar/*.jpg
 avatar/*.jpeg
 avatar/*.png
 !avatar/ava.png
+media/

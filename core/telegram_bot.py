@@ -5,7 +5,7 @@ from telethon import TelegramClient, events
 
 from core import ai as ai_module
 from core import database
-from core.config import SESSION_STEM, conf
+from core.config import SESSION_STEM, conf, MEDIA_DIR
 from core.avatars import download_chat_avatar
 from core.database import get_profile_bio_text, init_db, set_my_user_id
 from core.utils import (
@@ -38,7 +38,55 @@ async def handle_new_message(event):
 
     chat_id = event.chat_id
 
-    if event.message.photo or event.message.video_note:
+    if event.out:
+        # Outgoing message from the user.
+        # Save to DB history and exit.
+        text = event.message.text or ""
+        if not text:
+            if event.message.voice:
+                text = "[Голосовое сообщение]"
+            elif event.message.video_note:
+                text = "[Кругляшок]"
+            elif event.message.photo:
+                text = "[Фото]"
+            elif event.message.video:
+                text = "[Видео]"
+            else:
+                text = "[Медиа]"
+
+        await database.db.execute(
+            "INSERT OR IGNORE INTO messages "
+            "(chat_id, sender_id, text, timestamp, tg_msg_id) VALUES (?, ?, ?, ?, ?)",
+            (
+                chat_id,
+                0,  # 0 indicates the user ("me")
+                text,
+                store_message_timestamp(event.message.date),
+                event.message.id,
+            ),
+        )
+        await database.db.commit()
+        signals.chat_list_updated.emit()
+        return
+
+    # Check for media types
+    has_media = False
+    media_type = ""
+    
+    if event.message.voice:
+        has_media = True
+        media_type = "голосовое сообщение"
+    elif event.message.video_note:
+        has_media = True
+        media_type = "кругляшок"
+    elif event.message.photo:
+        has_media = True
+        media_type = "фото"
+    elif event.message.video:
+        has_media = True
+        media_type = "видео"
+
+    if has_media and not conf.get("EXPERIMENTAL_MEDIA_REPLY", False):
         try:
             await database.db.execute(
                 "UPDATE profiles SET status='paused' WHERE user_id=?",
@@ -55,7 +103,7 @@ async def handle_new_message(event):
 
             await client.send_message(
                 "me",
-                f"attention check the chat: {chat_name}",
+                f"⚠️ Внимание, опасность! В чате {chat_name} получено {media_type}.",
             )
 
             signals.chat_list_updated.emit()
@@ -77,8 +125,110 @@ async def handle_new_message(event):
     if row[0] != "active":
         return
 
-    text = event.message.text or ""
+    text = ""
+    if has_media and conf.get("EXPERIMENTAL_MEDIA_REPLY", False):
+        import time
+        import base64
+        import os
+        import cv2
+
+        timestamp = int(time.time())
+        file_ext = ""
+        if event.message.voice:
+            file_ext = ".ogg"
+        elif event.message.video_note or event.message.video:
+            file_ext = ".mp4"
+        elif event.message.photo:
+            file_ext = ".jpg"
+
+        file_name = f"media_{chat_id}_{timestamp}{file_ext}"
+        local_path = os.path.join(str(MEDIA_DIR), file_name)
+
+        try:
+            await event.message.download_media(file=local_path)
+            
+            if event.message.voice:
+                transcription = await ai_module.transcribe_audio_file(local_path)
+                if transcription:
+                    text = f"[Голосовое]: {transcription}"
+                else:
+                    text = "[Голосовое сообщение]"
+            
+            elif event.message.photo:
+                with open(local_path, "rb") as f:
+                    img_bytes = f.read()
+                img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+                
+                description = await ai_module.describe_image_or_frames([img_b64], "photo")
+                if description:
+                    text = f"[Фото: {description}]"
+                else:
+                    text = "[Фотография]"
+                    
+            elif event.message.video_note or event.message.video:
+                transcription = await ai_module.transcribe_audio_file(local_path)
+                
+                frames_b64 = []
+                vidcap = cv2.VideoCapture(local_path)
+                if vidcap.isOpened():
+                    fps = vidcap.get(cv2.CAP_PROP_FPS)
+                    if fps <= 0:
+                        fps = 25.0
+                    frame_step = int(2 * fps)
+                    total_frames = int(vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    
+                    frame_idx = 0
+                    while frame_idx < total_frames:
+                        vidcap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                        success, frame = vidcap.read()
+                        if not success:
+                            break
+                        success_enc, buffer = cv2.imencode('.jpg', frame)
+                        if success_enc:
+                            img_b64 = base64.b64encode(buffer).decode('utf-8')
+                            frames_b64.append(img_b64)
+                        frame_idx += frame_step
+                    vidcap.release()
+                
+                description = ""
+                if frames_b64:
+                    description = await ai_module.describe_image_or_frames(frames_b64, "video")
+                
+                media_label = "Кругляшок" if event.message.video_note else "Видео"
+                if transcription and description:
+                    text = f"[{media_label}: {transcription} | Видеоряд: {description}]"
+                elif transcription:
+                    text = f"[{media_label}: {transcription}]"
+                elif description:
+                    text = f"[{media_label}: Видеоряд: {description}]"
+                else:
+                    text = f"[{media_label}]"
+            
+            if os.path.exists(local_path):
+                os.remove(local_path)
+
+        except Exception as e:
+            print("Error processing media reply:", e)
+            if event.message.voice:
+                text = "[Голосовое сообщение]"
+            elif event.message.video_note:
+                text = "[Кругляшок]"
+            elif event.message.photo:
+                text = "[Фото]"
+            else:
+                text = "[Видео]"
+            
+            if os.path.exists(local_path):
+                try:
+                    os.remove(local_path)
+                except Exception:
+                    pass
+    else:
+        text = event.message.text or ""
+
     sender = await event.get_sender()
+    peer_name = getattr(sender, "first_name", "") or "Unknown"
+    peer_username = getattr(sender, "username", "") or ""
 
     await database.db.execute(
         """
@@ -87,24 +237,22 @@ async def handle_new_message(event):
         """,
         (
             chat_id,
-            getattr(sender, "username", "") or "",
-            getattr(sender, "first_name", "") or "Unknown",
+            peer_username,
+            peer_name,
+        ),
+    )
+    await database.db.execute(
+        """
+        UPDATE profiles SET username=?, name=?
+        WHERE user_id=? AND is_me=0
+        """,
+        (
+            peer_username,
+            peer_name,
+            chat_id,
         ),
     )
     await database.db.commit()
-
-    if event.message.voice:
-        try:
-            voice_bot = "@my_voice_messages_bot"
-            async with client.conversation(voice_bot, timeout=30) as conv:
-                await event.message.forward_to(voice_bot)
-                response = await conv.get_response()
-                if response and response.text:
-                    text = f"[Голосовое]: {response.text}"
-                else:
-                    text = "[Голосовое сообщение]"
-        except Exception:
-            text = "[Голосовое сообщение]"
 
     await database.db.execute(
         "INSERT OR IGNORE INTO messages "
@@ -190,7 +338,7 @@ async def handle_new_message(event):
             )
 
             hobbies_context = f"\nХобби собеседника: {hobbies}" if hobbies else ""
-            prompt_type = conf["PROMPT_INTRO"] if mode == 0 else conf["PROMPT_CHAT"]
+            prompt_type = await database.get_prompt_for_chat(chat_id)
 
             response_lang = conf.get("LANGUAGE", "ru")
 

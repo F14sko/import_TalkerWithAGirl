@@ -7,6 +7,8 @@ CONFIG_FILE = PROJECT_ROOT / "config.json"
 SESSION_FILE = PROJECT_ROOT / "session.session"
 SESSION_STEM = str(PROJECT_ROOT / "session")
 IMAGE_PATH = PROJECT_ROOT / "avatar" / "ava.png"
+MEDIA_DIR = PROJECT_ROOT / "media"
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_CONFIG = {
     "API_ID": 0,
@@ -17,8 +19,8 @@ DEFAULT_CONFIG = {
     "TIMEZONE": 3,
     "MY_BIO": "",
     "SELECTED_API": "groq",
-    "PROMPT_INTRO": "ты — остроумный, уверенный в себе парень. Твоя цель — завязать непринужденный диалог. Правила общения: Краткость: Пиши не более 1–2 предложений. Никаких длинных абзацев. Живой язык: Используй современную лексику, но без перебора. Никакой лести: Не делай банальных комплиментов внешности. Используй легкий «пэйсинг» (поддразнивание). Инициатива: Всегда заканчивай ответ коротким открытым вопросом или призывом к действию. Запреты: Не используй фразы «Как прошел твой день?», «Чем занимаешься?», эмодзи-роботов и официальный тон. Правила: Краткость (1-2 предл.), живой язык, никакой лести. Завершай вопросом. ",
-    "PROMPT_CHAT": "Ты — парень, который уже нравится этой девушке. Общайся расслабленно, тепло, иногда подкалывай и заигрывай. Тон уверенный, но не пошлый. Пиши коротко, в стиле мессенджеров. Используй контекст ваших шуток из истории. Правила общения: Краткость: Пиши не более 1–2 предложений. Никаких длинных абзацев. Живой язык: Используй современную лексику, но без перебора. Никакой лести: Не делай банальных комплиментов внешности. Инициатива: Всегда заканчивай ответ коротким открытым вопросом или призывом к действию. Запреты: Не используй фразы «Как прошел твой день?», «Чем занимаешься?», эмодзи-роботов и официальный тон. Правила: Краткость (1-2 предл.), живой язык, никакой лести. Завершай вопросом. ",
+    "PROMPTS": {},
+    "EXPERIMENTAL_MEDIA_REPLY": False,
 }
 
 
@@ -29,7 +31,14 @@ def load_config():
 
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         try:
-            return {**DEFAULT_CONFIG, **json.load(f)}
+            data = json.load(f)
+            if "PROMPTS" not in data:
+                data["PROMPTS"] = {}
+                if "PROMPT_INTRO" in data:
+                    data["PROMPTS"]["Промпт 1"] = data["PROMPT_INTRO"]
+                if "PROMPT_CHAT" in data:
+                    data["PROMPTS"]["Промпт 2"] = data["PROMPT_CHAT"]
+            return {**DEFAULT_CONFIG, **data}
         except Exception:
             return DEFAULT_CONFIG.copy()
 
@@ -90,7 +99,17 @@ translations = {
         "select_prompt": "Response prompt",
         "prompt_intro": "Prompt 1",
         "prompt_chat": "Prompt 2",
-        "add_chat_hint": "Telegram @username",
+        "add_chat_hint": "Telegram @username or ID",
+        "add_chat_placeholder": "@username or ID",
+        "settings_general": "General",
+        "settings_prompts": "Prompts",
+        "add_prompt_title": "Add Prompt",
+        "prompt_name_label": "Prompt Name:",
+        "prompt_name_placeholder": "e.g., Greeting",
+        "prompt_text_label": "Prompt Text:",
+        "prompt_text_placeholder": "Write your prompt here...",
+        "error_no_prompts": "Please create prompts first!",
+        "select_prompt": "Select prompt",
         "lang_en": "English",
         "lang_ru": "Russian",
         "theme": "Interface theme",
@@ -98,6 +117,10 @@ translations = {
         "theme_light": "Light theme",
         "timezone": "Timezone",
         "selected_api": "API Model",
+        "media_reply": "Media Reply (Experimental)",
+        "media_reply_tooltip": "When the feature is disabled, voice messages, photos, and video notes pause the chat and send an error notification to Saved Messages. When the feature is enabled, it continues to work, sending everything to the AI (use at your own risk).",
+        "media_reply_on": "Enabled",
+        "media_reply_off": "Disabled",
     },
     "ru": {
         "connect": "Подключить",
@@ -136,7 +159,17 @@ translations = {
         "select_prompt": "Промпт для ответов",
         "prompt_intro": "Промпт 1",
         "prompt_chat": "Промпт 2",
-        "add_chat_hint": "Telegram @username",
+        "add_chat_hint": "Telegram @username или ID",
+        "add_chat_placeholder": "@username или ID",
+        "settings_general": "Основные",
+        "settings_prompts": "Промты",
+        "add_prompt_title": "Добавить промпт",
+        "prompt_name_label": "Название промпта:",
+        "prompt_name_placeholder": "Например, Приветствие",
+        "prompt_text_label": "Текст промпта:",
+        "prompt_text_placeholder": "Напишите ваш промпт здесь...",
+        "error_no_prompts": "Сначала создайте хотя бы один промпт!",
+        "select_prompt": "Выберите промпт",
         "lang_en": "English",
         "lang_ru": "Русский",
         "theme": "Тема интерфейса",
@@ -144,6 +177,10 @@ translations = {
         "theme_light": "Светлая тема",
         "timezone": "Часовой пояс",
         "selected_api": "Модель API",
+        "media_reply": "Ответ на медиа (Экспериментально)",
+        "media_reply_tooltip": "Когда функция выключена голосовые сообщения фото и кругляшки приостанавливают чат и отправляют уведомление об ошибке в избранное. При включении функции он продолжает работу, отправляя все ИИ (используйте на свой страх и риск)",
+        "media_reply_on": "Включено",
+        "media_reply_off": "Выключено",
     },
 }
 

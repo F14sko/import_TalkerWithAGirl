@@ -53,7 +53,7 @@ def run_asyncio_loop(loop_param):
 
 def run_main():
     global app
-    config.conf = load_config() 
+    config.reload_config() 
     telegram_bot.loop = asyncio.new_event_loop()
     window = MainApp()
     window.show()

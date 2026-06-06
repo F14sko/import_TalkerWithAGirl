@@ -61,6 +61,69 @@ HEADER_H = 68
 WIN_RADIUS = 16
 
 
+class ToolTipPopup(QWidget):
+    def __init__(self, text, parent_app, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedSize(300, 130)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        self.frame = QFrame()
+        frame_layout = QVBoxLayout(self.frame)
+        frame_layout.setContentsMargins(12, 12, 12, 12)
+        
+        self.label = QLabel(text)
+        self.label.setWordWrap(True)
+        self.label.setStyleSheet("background: transparent; border: none;")
+        frame_layout.addWidget(self.label)
+        
+        layout.addWidget(self.frame)
+        
+        t = parent_app.t
+        accent = t["accent"]
+        panel = t["panel"]
+        text_color = t["text"]
+        
+        self.frame.setStyleSheet(
+            f"QFrame {{ background-color: {panel}; "
+            f"border: 1px solid {accent}; border-radius: 10px; }}"
+            f"QLabel {{ color: {text_color}; font-size: 12px; font-weight: normal; }}"
+        )
+
+
+class HelpIcon(QLabel):
+    def __init__(self, text, tooltip_text, parent_app, parent=None):
+        super().__init__(text, parent)
+        self.tooltip_text = tooltip_text
+        self.parent_app = parent_app
+        self.popup = None
+        self.setFixedSize(16, 16)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMouseTracking(True)
+        self.setObjectName("helpIcon")
+
+    def enterEvent(self, event):
+        if not self.popup:
+            self.popup = ToolTipPopup(self.tooltip_text, self.parent_app)
+        
+        global_pos = self.mapToGlobal(self.rect().topLeft())
+        self.popup.move(global_pos.x() + 12, global_pos.y() - 120)
+        self.popup.show()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if self.popup:
+            self.popup.hide()
+            self.popup.deleteLater()
+            self.popup = None
+        super().leaveEvent(event)
+
+
 class MainApp(QWidget):
     def __init__(self):
         super().__init__()
@@ -75,6 +138,7 @@ class MainApp(QWidget):
         self._messages_cache = {}
         self._profile_load_gen = 0
         self.chat_subview = "messages"
+        self.settings_tab = "general"
         self.window_drag_pos = None
 
         self.initUI()
@@ -132,10 +196,18 @@ class MainApp(QWidget):
         )
 
     def _scrollbar_style(self):
+        bg = self.t["bg"]
+        text_color = self.t["text"]
+        panel = self.t["panel"]
+        accent = self.t["accent"]
         return (
-            f"QScrollBar:vertical {{ width: 8px; background: {self.t['scrollbar_bg']}; }}"
-            f"QScrollBar::handle:vertical {{ background: {self.t['scrollbar_handle']}; "
-            f"border-radius: 4px; }}"
+            "QScrollBar:vertical { width: 0px; background: transparent; border: none; }"
+            "QScrollBar:horizontal { height: 0px; background: transparent; border: none; }"
+            "QScrollBar::handle:vertical, QScrollBar::handle:horizontal { background: transparent; border: none; }"
+            "QScrollBar::add-line, QScrollBar::sub-line { width: 0px; height: 0px; }"
+            f"QToolTip {{ background-color: {panel}; color: {text_color}; "
+            f"border: 1px solid {accent}; border-radius: 6px; padding: 8px; "
+            f"font-size: 12px; font-weight: normal; }}"
         )
 
     def _panel_card_style(self, bg_color):
@@ -359,6 +431,22 @@ class MainApp(QWidget):
         save_config(config.conf)
         self.apply_theme()
 
+    def _media_reply_label(self):
+        val = config.conf.get("EXPERIMENTAL_MEDIA_REPLY", False)
+        return tr("media_reply_on") if val else tr("media_reply_off")
+
+    def _media_reply_btn_style(self):
+        val = config.conf.get("EXPERIMENTAL_MEDIA_REPLY", False)
+        return self._btn_filled_style() if val else self._btn_outline_style()
+
+    def toggle_media_reply(self):
+        val = config.conf.get("EXPERIMENTAL_MEDIA_REPLY", False)
+        config.conf["EXPERIMENTAL_MEDIA_REPLY"] = not val
+        save_config(config.conf)
+        if hasattr(self, "media_reply_toggle_btn") and self.media_reply_toggle_btn:
+            self.media_reply_toggle_btn.setText(self._media_reply_label())
+            self.media_reply_toggle_btn.setStyleSheet(self._media_reply_btn_style())
+
     def initUI(self):
         self.setFixedSize(WIN_W, WIN_H)
         self.setWindowTitle("FiaskoAI")
@@ -547,6 +635,8 @@ class MainApp(QWidget):
 
         self.scroll = RestrictedScrollArea()
         self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll.setStyleSheet("border: none; background: transparent;")
         self.scroll_content = QWidget()
         scroll_outer = QVBoxLayout(self.scroll_content)
@@ -611,6 +701,7 @@ class MainApp(QWidget):
 
     def show_split(self, right_mode):
         self.split_visible = True
+        self.update_chat_items_truncation()
         self.right_mode = right_mode
         self.right_panel.show()
         self._rebuild_right_panel()
@@ -619,8 +710,14 @@ class MainApp(QWidget):
 
     def hide_split(self):
         self.split_visible = False
+        self.update_chat_items_truncation()
         self.right_mode = None
         self.right_panel.hide()
+
+    def update_chat_items_truncation(self):
+        for item in self.chat_items.values():
+            if hasattr(item, "update_name_truncation"):
+                item.update_name_truncation()
 
     def select_chat(self, user_id, name):
         self.active_chat_id = user_id
@@ -650,12 +747,6 @@ class MainApp(QWidget):
             "lang_toggle_btn",
             "theme_toggle_btn",
             "timezone_combo",
-            "api_combo",
-            "profile_avatar",
-            "profile_name_input",
-            "profile_age_input",
-            "profile_about_input",
-            "messages_view",
             "chat_title_lbl",
             "chat_gear_btn",
             "formal_btn",
@@ -664,6 +755,16 @@ class MainApp(QWidget):
             "prompt_chat_btn",
             "date_input",
             "summary_text",
+            "media_reply_toggle_btn",
+            "api_id_input",
+            "api_hash_input",
+            "key_input",
+            "timezone_combo",
+            "api_combo",
+            "settings_general_btn",
+            "settings_prompts_btn",
+            "_prompt_edits",
+            "chat_prompt_combo",
         ):
             if hasattr(self, attr):
                 setattr(self, attr, None)
@@ -708,109 +809,245 @@ class MainApp(QWidget):
     def _build_settings_panel(self):
         self._add_panel_header(tr("tab_settings"), self.save_settings)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(
-            f"border: none; background: {self.t['panel']};"
-        )
-        content = QWidget()
-        content.setStyleSheet(f"background: {self.t['panel']};")
-        layout = QVBoxLayout(content)
-        layout.setSpacing(10)
-        config_row = QHBoxLayout()
+        # Tab switcher layout
+        tabs_layout = QHBoxLayout()
+        tabs_layout.setContentsMargins(0, 5, 0, 10)
+        tabs_layout.setSpacing(20)
 
-        theme_col = QVBoxLayout()
-        theme_lbl = QLabel(tr("theme"))
-        theme_lbl.setStyleSheet(self._label_style())
-        self.theme_toggle_btn = QPushButton(theme_label())
-        self.theme_toggle_btn.setStyleSheet(self._btn_outline_style())
-        self.theme_toggle_btn.clicked.connect(self.toggle_theme)
-        theme_col.addWidget(theme_lbl)
-        theme_col.addWidget(self.theme_toggle_btn)
-        config_row.addLayout(theme_col)
+        text_c = self.t["text"]
+        muted = self.t["muted"]
+        accent = self.t["accent"]
 
-        config_row.addStretch()
+        self.settings_general_btn = QPushButton(tr("settings_general"))
+        self.settings_prompts_btn = QPushButton(tr("settings_prompts"))
 
-        lang_col = QVBoxLayout()
-        lang_lbl = QLabel(tr("language"))
-        lang_lbl.setStyleSheet(self._label_style())
-        lang_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.lang_toggle_btn = QPushButton(
-            language_label(config.conf.get("LANGUAGE", "en"))
-        )
-        self.lang_toggle_btn.setStyleSheet(self._btn_outline_style())
-        self.lang_toggle_btn.clicked.connect(self.toggle_ui_language)
-        
-        lang_btn_row = QHBoxLayout()
-        lang_btn_row.addStretch()
-        lang_btn_row.addWidget(self.lang_toggle_btn)
-        
-        lang_col.addWidget(lang_lbl)
-        lang_col.addLayout(lang_btn_row)
-        config_row.addLayout(lang_col)
+        for btn, tab_name in [(self.settings_general_btn, "general"), (self.settings_prompts_btn, "prompts")]:
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            if self.settings_tab == tab_name:
+                btn.setStyleSheet(
+                    f"QPushButton {{ color: {text_c}; border: none; font-size: 14px; "
+                    f"font-weight: bold; padding: 6px 0px; background: transparent; "
+                    f"border-bottom: 2px solid {accent}; }}"
+                )
+            else:
+                btn.setStyleSheet(
+                    f"QPushButton {{ color: {muted}; border: none; font-size: 14px; "
+                    f"font-weight: bold; padding: 6px 0px; background: transparent; }}"
+                    f"QPushButton:hover {{ color: {text_c}; }}"
+                )
+            
+        def select_settings_tab(tab_name):
+            self.settings_tab = tab_name
+            self._rebuild_right_panel()
 
-        layout.addLayout(config_row)
+        self.settings_general_btn.clicked.connect(lambda: select_settings_tab("general"))
+        self.settings_prompts_btn.clicked.connect(lambda: select_settings_tab("prompts"))
 
-        tz_lbl = QLabel(tr("timezone"))
-        tz_lbl.setStyleSheet(self._label_style())
-        layout.addWidget(tz_lbl)
-        self.timezone_combo = QComboBox()
-        self.timezone_combo.setView(QListView())
-        self.timezone_combo.setStyleSheet(self._combo_style())
-        current_offset = timezone_offset_hours()
-        for hour in range(-12, 15):
-            label = f"UTC+{hour}" if hour >= 0 else f"UTC{hour}"
-            self.timezone_combo.addItem(label, hour)
-        idx = self.timezone_combo.findData(current_offset)
-        self.timezone_combo.setCurrentIndex(idx if idx >= 0 else self.timezone_combo.findData(0))
-        layout.addWidget(self.timezone_combo)
+        tabs_layout.addWidget(self.settings_general_btn)
+        tabs_layout.addWidget(self.settings_prompts_btn)
+        tabs_layout.addStretch()
+        self.right_layout.addLayout(tabs_layout)
 
-        api_lbl = QLabel(tr("selected_api"))
-        api_lbl.setStyleSheet(self._label_style())
-        layout.addWidget(api_lbl)
-        self.api_combo = QComboBox()
-        self.api_combo.setView(QListView())
-        self.api_combo.setStyleSheet(self._combo_style())
-        self.api_combo.addItem("Gemini", "gemini")
-        self.api_combo.addItem("ChatGPT", "chatgpt")
-        self.api_combo.addItem("Llama", "llama")
-        self.api_combo.addItem("Groq", "groq")
-        current_api = config.conf.get("SELECTED_API", "groq")
-        idx = self.api_combo.findData(current_api)
-        self.api_combo.setCurrentIndex(idx if idx >= 0 else self.api_combo.findData("groq"))
-        layout.addWidget(self.api_combo)
+        if self.settings_tab == "general":
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setStyleSheet(
+                f"border: none; background: {self.t['panel']};"
+            )
+            content = QWidget()
+            content.setStyleSheet(f"background: {self.t['panel']};")
+            layout = QVBoxLayout(content)
+            layout.setSpacing(10)
+            config_row = QHBoxLayout()
 
-        def add_field(label_text, widget):
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet(self._label_style())
-            layout.addWidget(lbl)
-            layout.addWidget(widget)
+            theme_col = QVBoxLayout()
+            theme_lbl = QLabel(tr("theme"))
+            theme_lbl.setStyleSheet(self._label_style())
+            self.theme_toggle_btn = QPushButton(theme_label())
+            self.theme_toggle_btn.setStyleSheet(self._btn_outline_style())
+            self.theme_toggle_btn.clicked.connect(self.toggle_theme)
+            theme_col.addWidget(theme_lbl)
+            theme_col.addWidget(self.theme_toggle_btn)
+            config_row.addLayout(theme_col)
 
-        self.api_id_input = QLineEdit(str(config.conf["API_ID"]))
-        self.api_id_input.setStyleSheet(self._input_style())
-        add_field("API ID:", self.api_id_input)
+            config_row.addStretch()
 
-        self.api_hash_input = QLineEdit(config.conf["API_HASH"])
-        self.api_hash_input.setStyleSheet(self._input_style())
-        add_field("API HASH:", self.api_hash_input)
+            lang_col = QVBoxLayout()
+            lang_lbl = QLabel(tr("language"))
+            lang_lbl.setStyleSheet(self._label_style())
+            lang_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+            self.lang_toggle_btn = QPushButton(
+                language_label(config.conf.get("LANGUAGE", "en"))
+            )
+            self.lang_toggle_btn.setStyleSheet(self._btn_outline_style())
+            self.lang_toggle_btn.clicked.connect(self.toggle_ui_language)
+            
+            lang_btn_row = QHBoxLayout()
+            lang_btn_row.addStretch()
+            lang_btn_row.addWidget(self.lang_toggle_btn)
+            
+            lang_col.addWidget(lang_lbl)
+            lang_col.addLayout(lang_btn_row)
+            config_row.addLayout(lang_col)
 
-        self.key_input = QLineEdit(config.conf["API_KEY"])
-        self.key_input.setStyleSheet(self._input_style())
-        add_field("API Key:", self.key_input)
+            layout.addLayout(config_row)
 
-        self.p_intro = QTextEdit(config.conf.get("PROMPT_INTRO", ""))
-        self.p_intro.setFixedHeight(80)
-        self.p_intro.setStyleSheet(self._input_style())
-        add_field("Prompt 1:", self.p_intro)
+            tz_lbl = QLabel(tr("timezone"))
+            tz_lbl.setStyleSheet(self._label_style())
+            layout.addWidget(tz_lbl)
+            self.timezone_combo = QComboBox()
+            self.timezone_combo.setView(QListView())
+            self.timezone_combo.setStyleSheet(self._combo_style())
+            current_offset = timezone_offset_hours()
+            for hour in range(-12, 15):
+                label = f"UTC+{hour}" if hour >= 0 else f"UTC{hour}"
+                self.timezone_combo.addItem(label, hour)
+            idx = self.timezone_combo.findData(current_offset)
+            self.timezone_combo.setCurrentIndex(idx if idx >= 0 else self.timezone_combo.findData(0))
+            layout.addWidget(self.timezone_combo)
 
-        self.p_chat = QTextEdit(config.conf.get("PROMPT_CHAT", ""))
-        self.p_chat.setFixedHeight(80)
-        self.p_chat.setStyleSheet(self._input_style())
-        add_field("Prompt 2:", self.p_chat)
+            api_lbl = QLabel(tr("selected_api"))
+            api_lbl.setStyleSheet(self._label_style())
+            layout.addWidget(api_lbl)
+            self.api_combo = QComboBox()
+            self.api_combo.setView(QListView())
+            self.api_combo.setStyleSheet(self._combo_style())
+            self.api_combo.addItem("Gemini", "gemini")
+            self.api_combo.addItem("ChatGPT", "chatgpt")
+            self.api_combo.addItem("Llama", "llama")
+            self.api_combo.addItem("Groq", "groq")
+            current_api = config.conf.get("SELECTED_API", "groq")
+            idx = self.api_combo.findData(current_api)
+            self.api_combo.setCurrentIndex(idx if idx >= 0 else self.api_combo.findData("groq"))
+            layout.addWidget(self.api_combo)
 
-        layout.addStretch()
-        scroll.setWidget(content)
-        self.right_layout.addWidget(scroll, 1)
+            # Media reply toggle layout
+            media_reply_layout = QVBoxLayout()
+            media_reply_layout.setSpacing(4)
+            
+            label_layout = QHBoxLayout()
+            label_layout.setSpacing(6)
+            
+            media_lbl = QLabel(tr("media_reply"))
+            media_lbl.setStyleSheet(self._label_style())
+            label_layout.addWidget(media_lbl)
+            
+            question_mark = HelpIcon("?", tr("media_reply_tooltip"), self)
+            question_mark.setStyleSheet(
+                f"QLabel#helpIcon {{ color: {self.t['muted']}; border: 1px solid {self.t['muted']}; "
+                f"border-radius: 8px; font-size: 10px; font-weight: bold; background: transparent; }}"
+            )
+            label_layout.addWidget(question_mark)
+            label_layout.addStretch()
+            
+            media_reply_layout.addLayout(label_layout)
+            
+            self.media_reply_toggle_btn = QPushButton(self._media_reply_label())
+            self.media_reply_toggle_btn.setStyleSheet(self._media_reply_btn_style())
+            self.media_reply_toggle_btn.clicked.connect(self.toggle_media_reply)
+            media_reply_layout.addWidget(self.media_reply_toggle_btn)
+            
+            layout.addLayout(media_reply_layout)
+
+            def add_field(label_text, widget):
+                lbl = QLabel(label_text)
+                lbl.setStyleSheet(self._label_style())
+                layout.addWidget(lbl)
+                layout.addWidget(widget)
+
+            self.api_id_input = QLineEdit(str(config.conf["API_ID"]))
+            self.api_id_input.setStyleSheet(self._input_style())
+            add_field("API ID:", self.api_id_input)
+
+            self.api_hash_input = QLineEdit(config.conf["API_HASH"])
+            self.api_hash_input.setStyleSheet(self._input_style())
+            add_field("API HASH:", self.api_hash_input)
+
+            self.key_input = QLineEdit(config.conf["API_KEY"])
+            self.key_input.setStyleSheet(self._input_style())
+            add_field("API Key:", self.key_input)
+
+            layout.addStretch()
+            scroll.setWidget(content)
+            self.right_layout.addWidget(scroll, 1)
+
+        elif self.settings_tab == "prompts":
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setStyleSheet(
+                f"border: none; background: {self.t['panel']};"
+            )
+            content = QWidget()
+            content.setStyleSheet(f"background: {self.t['panel']};")
+            layout = QVBoxLayout(content)
+            layout.setSpacing(15)
+
+            header_row = QHBoxLayout()
+            prompts_lbl = QLabel(tr("settings_prompts"))
+            prompts_lbl.setStyleSheet(self._label_style(16))
+            header_row.addWidget(prompts_lbl)
+            
+            header_row.addStretch()
+            
+            add_btn = self._make_outline_button(tr("add"))
+            add_btn.clicked.connect(self.add_prompt_click)
+            header_row.addWidget(add_btn)
+            layout.addLayout(header_row)
+
+            self._prompt_edits = {}
+            prompts_dict = config.conf.get("PROMPTS", {})
+            for name, text in prompts_dict.items():
+                prompt_header = QHBoxLayout()
+                lbl = QLabel(name)
+                lbl.setStyleSheet(self._label_style(13))
+                prompt_header.addWidget(lbl)
+                
+                prompt_header.addStretch()
+                
+                del_btn = QPushButton("✕")
+                del_btn.setFixedSize(24, 24)
+                del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                del_btn.setStyleSheet(
+                    f"color: #aa3333; background: transparent; border: none; font-size: 14px; font-weight: bold;"
+                )
+                def make_delete_callback(p_name):
+                    return lambda: self.delete_prompt(p_name)
+                del_btn.clicked.connect(make_delete_callback(name))
+                prompt_header.addWidget(del_btn)
+                layout.addLayout(prompt_header)
+
+                text_edit = QTextEdit(text)
+                text_edit.setFixedHeight(120)
+                text_edit.setStyleSheet(self._input_style())
+                layout.addWidget(text_edit)
+                self._prompt_edits[name] = text_edit
+
+            layout.addStretch()
+            scroll.setWidget(content)
+            self.right_layout.addWidget(scroll, 1)
+
+    def add_prompt_click(self):
+        from ui.widgets import AddPromptDialog
+        from PyQt6.QtWidgets import QDialog
+        dlg = AddPromptDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            name, text = dlg.get_data()
+            if name and text:
+                if "PROMPTS" not in config.conf:
+                    config.conf["PROMPTS"] = {}
+                config.conf["PROMPTS"][name] = text
+                save_config(config.conf)
+                self._rebuild_right_panel()
+
+    def delete_prompt(self, name):
+        if "PROMPTS" in config.conf and name in config.conf["PROMPTS"]:
+            del config.conf["PROMPTS"][name]
+            save_config(config.conf)
+            self._rebuild_right_panel()
 
     def _build_profile_panel(self):
         self._add_panel_header(tr("tab_profile"), self.save_profile)
@@ -853,7 +1090,10 @@ class MainApp(QWidget):
 
     def _build_chat_messages_panel(self):
         row = QHBoxLayout()
-        self.chat_title_lbl = QLabel(self.active_chat_name)
+        title_text = self.active_chat_name
+        if len(title_text) > 30:
+            title_text = title_text[:30] + "..."
+        self.chat_title_lbl = QLabel(title_text)
         self.chat_title_lbl.setStyleSheet(self._title_style(20))
         row.addWidget(self.chat_title_lbl)
         row.addStretch()
@@ -888,6 +1128,8 @@ class MainApp(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(
             f"border: none; background: {self.t['panel']};"
         )
@@ -900,14 +1142,21 @@ class MainApp(QWidget):
         prompt_lbl.setStyleSheet(self._label_style())
         layout.addWidget(prompt_lbl)
 
-        prompt_row = QHBoxLayout()
-        self.prompt_intro_btn = QPushButton(tr("prompt_intro"))
-        self.prompt_chat_btn = QPushButton(tr("prompt_chat"))
-        self.prompt_intro_btn.clicked.connect(lambda: self.set_chat_prompt_mode(0))
-        self.prompt_chat_btn.clicked.connect(lambda: self.set_chat_prompt_mode(1))
-        prompt_row.addWidget(self.prompt_intro_btn)
-        prompt_row.addWidget(self.prompt_chat_btn)
-        layout.addLayout(prompt_row)
+        prompts_dict = config.conf.get("PROMPTS", {})
+        if not prompts_dict:
+            err_lbl = QLabel(tr("error_no_prompts"))
+            err_lbl.setStyleSheet("color: #ff3b30; font-size: 13px; font-weight: bold;")
+            layout.addWidget(err_lbl)
+            self.chat_prompt_combo = None
+        else:
+            self.chat_prompt_combo = QComboBox()
+            self.chat_prompt_combo.setView(QListView())
+            self.chat_prompt_combo.setStyleSheet(self._combo_style())
+            for name in prompts_dict.keys():
+                self.chat_prompt_combo.addItem(name, name)
+            self.chat_prompt_combo.currentIndexChanged.connect(self.save_chat_prompt)
+            layout.addWidget(self.chat_prompt_combo)
+
         style_lbl = QLabel(tr("change_style"))
         style_lbl.setStyleSheet(self._label_style())
         layout.addWidget(style_lbl)
@@ -1061,26 +1310,38 @@ class MainApp(QWidget):
 
     def save_settings(self):
         try:
-            config.conf["API_ID"] = int(self.api_id_input.text())
-            config.conf["API_HASH"] = self.api_hash_input.text().strip()
-            config.conf["API_KEY"] = self.key_input.text().strip()
-            config.conf["PROMPT_INTRO"] = self.p_intro.toPlainText()
-            config.conf["PROMPT_CHAT"] = self.p_chat.toPlainText()
-            config.conf["TIMEZONE"] = int(self.timezone_combo.currentData())
-            selected_api = self.api_combo.currentData()
-            config.conf["SELECTED_API"] = selected_api
+            if hasattr(self, "api_id_input") and self.api_id_input:
+                try:
+                    config.conf["API_ID"] = int(self.api_id_input.text())
+                except ValueError:
+                    pass
+            if hasattr(self, "api_hash_input") and self.api_hash_input:
+                config.conf["API_HASH"] = self.api_hash_input.text().strip()
+            if hasattr(self, "key_input") and self.key_input:
+                config.conf["API_KEY"] = self.key_input.text().strip()
+            if hasattr(self, "timezone_combo") and self.timezone_combo:
+                config.conf["TIMEZONE"] = int(self.timezone_combo.currentData())
+            if hasattr(self, "api_combo") and self.api_combo:
+                selected_api = self.api_combo.currentData()
+                config.conf["SELECTED_API"] = selected_api
+
+                async def save_to_db():
+                    if not database.db:
+                        database.db = await database.init_db()
+                    await database.db.execute(
+                        "UPDATE app_profile SET selected_api=? WHERE id=1",
+                        (selected_api,),
+                    )
+                    await database.db.commit()
+
+                asyncio.run_coroutine_threadsafe(save_to_db(), telegram_bot.loop)
+
+            if hasattr(self, "_prompt_edits") and self._prompt_edits:
+                for name, text_edit in self._prompt_edits.items():
+                    if text_edit:
+                        config.conf["PROMPTS"][name] = text_edit.toPlainText()
+
             save_config(config.conf)
-
-            async def save_to_db():
-                if not database.db:
-                    database.db = await database.init_db()
-                await database.db.execute(
-                    "UPDATE app_profile SET selected_api=? WHERE id=1",
-                    (selected_api,),
-                )
-                await database.db.commit()
-
-            asyncio.run_coroutine_threadsafe(save_to_db(), telegram_bot.loop)
 
             if self.active_chat_id and self._is_alive(
                 getattr(self, "messages_view", None)
@@ -1120,33 +1381,28 @@ class MainApp(QWidget):
         self.formal_btn.setStyleSheet(active if style == "formal" else base)
         self.casual_btn.setStyleSheet(active if style == "casual" else base)
 
-    def update_prompt_buttons(self, mode):
-        if not hasattr(self, "prompt_intro_btn"):
-            return
-        mode = int(mode)
-        base = self._btn_grey_style()
-        active = self._btn_outline_style()
-        self.prompt_intro_btn.setStyleSheet(active if mode == 0 else base)
-        self.prompt_chat_btn.setStyleSheet(active if mode == 1 else base)
-
-    def set_chat_prompt_mode(self, mode):
-        async def update():
-            await database.db.execute(
-                "UPDATE profiles SET bot_mode=? WHERE user_id=?",
-                (mode, self.active_chat_id),
-            )
-            await database.db.commit()
-
-        asyncio.run_coroutine_threadsafe(update(), telegram_bot.loop)
-        self.update_prompt_buttons(mode)
-
-    def _on_chat_settings_ready(self, mode, style):
+    def _on_chat_settings_ready(self, mode, style, selected_prompt):
         if self.right_mode != "chat" or self.chat_subview != "settings":
             return
         if self.active_chat_id is None:
             return
-        self.update_prompt_buttons(mode)
         self.update_style_buttons(style)
+
+        if hasattr(self, "chat_prompt_combo") and self.chat_prompt_combo:
+            self.chat_prompt_combo.blockSignals(True)
+            prompts = config.conf.get("PROMPTS", {})
+            prompt_names = list(prompts.keys())
+            
+            if not selected_prompt and 0 <= mode < len(prompt_names):
+                selected_prompt = prompt_names[mode]
+                
+            idx = self.chat_prompt_combo.findData(selected_prompt)
+            if idx >= 0:
+                self.chat_prompt_combo.setCurrentIndex(idx)
+            elif self.chat_prompt_combo.count() > 0:
+                self.chat_prompt_combo.setCurrentIndex(0)
+                
+            self.chat_prompt_combo.blockSignals(False)
 
     def _apply_chat_settings_from_db(self):
         chat_id = self.active_chat_id
@@ -1156,7 +1412,7 @@ class MainApp(QWidget):
                 database.db = await init_db()
 
             async with database.db.execute(
-                "SELECT bot_mode, communication_style FROM profiles WHERE user_id=?",
+                "SELECT bot_mode, communication_style, selected_prompt FROM profiles WHERE user_id=?",
                 (chat_id,),
             ) as cur:
                 row = await cur.fetchone()
@@ -1165,7 +1421,8 @@ class MainApp(QWidget):
             style = (
                 str(row[1]).strip().lower() if row and row[1] else "formal"
             )
-            signals.chat_settings_ready.emit(mode, style)
+            selected_prompt = str(row[2]) if row and len(row) > 2 and row[2] else ""
+            signals.chat_settings_ready.emit(mode, style, selected_prompt)
 
         asyncio.run_coroutine_threadsafe(load(), telegram_bot.loop)
 
@@ -1187,6 +1444,30 @@ class MainApp(QWidget):
 
         asyncio.run_coroutine_threadsafe(update(), telegram_bot.loop)
         self.update_style_buttons(style)
+
+    def save_chat_prompt(self):
+        if not hasattr(self, "chat_prompt_combo") or not self.chat_prompt_combo:
+            return
+        selected_prompt = self.chat_prompt_combo.currentData()
+        chat_id = self.active_chat_id
+        if not chat_id or not selected_prompt:
+            return
+
+        async def update():
+            prompts = config.conf.get("PROMPTS", {})
+            prompt_names = list(prompts.keys())
+            try:
+                mode_idx = prompt_names.index(selected_prompt)
+            except ValueError:
+                mode_idx = 0
+
+            await database.db.execute(
+                "UPDATE profiles SET selected_prompt=?, bot_mode=? WHERE user_id=?",
+                (selected_prompt, mode_idx, chat_id),
+            )
+            await database.db.commit()
+
+        asyncio.run_coroutine_threadsafe(update(), telegram_bot.loop)
 
     def _load_chat_messages(self):
         chat_id = self.active_chat_id
@@ -1256,16 +1537,7 @@ class MainApp(QWidget):
 
         async def run():
             try:
-                async with database.db.execute(
-                    "SELECT bot_mode FROM profiles WHERE user_id=?",
-                    (self.active_chat_id,),
-                ) as cur:
-                    row = await cur.fetchone()
-                    mode = row[0] if row else 0
-
-                prompt_type = (
-                    config.conf["PROMPT_INTRO"] if mode == 0 else config.conf["PROMPT_CHAT"]
-                )
+                prompt_type = await database.get_prompt_for_chat(self.active_chat_id)
                 bio = await get_profile_bio_text()
                 prompt = f"{bio}\n{prompt_type}\nНапиши первое сообщение для начала диалога."
                 text = await call_groq_api(prompt)
@@ -1394,8 +1666,14 @@ class MainApp(QWidget):
 
         async def add():
             try:
-                u = await telegram_bot.client.get_entity(username)
-                name = getattr(u, "first_name", "") or "Unknown"
+                try:
+                    entity_input = int(username)
+                except ValueError:
+                    entity_input = username
+
+                u = await telegram_bot.client.get_entity(entity_input)
+                from telethon.utils import get_display_name
+                name = get_display_name(u) or "Unknown"
                 await database.db.execute(
                     """
                     INSERT OR IGNORE INTO profiles

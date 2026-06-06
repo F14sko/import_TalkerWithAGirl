@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QDialogButtonBox,
     QWidget,
+    QTextEdit,
 )
 from telethon.sync import TelegramClient as SyncTelegramClient
 
@@ -36,7 +37,7 @@ class BotSignals(QObject):
     data_loaded = pyqtSignal(list)
     update_summary_signal = pyqtSignal(str)
     error_signal = pyqtSignal(str)
-    chat_settings_ready = pyqtSignal(int, str)
+    chat_settings_ready = pyqtSignal(int, str, str)
     avatar_updated = pyqtSignal(int)
     messages_loaded = pyqtSignal(int, object)
     profile_loaded = pyqtSignal(str, str, str)
@@ -99,7 +100,7 @@ def _add_chat_dialog_stylesheet():
     t = palette()
     acc = t["accent"]
     return (
-        f"QDialog {{ background-color: {t['bg']}; color: {t['text']}; }}"
+        f"QDialog {{ background-color: {t['panel']}; color: {t['text']}; }}"
         f"QLabel {{ color: {t['muted']}; font-size: 13px; background: transparent; }}"
         f"QLineEdit {{ background: {t['input_bg']}; color: {t['input_text']}; "
         f"border: none; border-radius: 10px; padding: 10px; font-size: 14px; }}"
@@ -131,7 +132,7 @@ class AddChatDialog(QDialog):
         layout.addWidget(hint)
 
         self.username_input = QLineEdit()
-        self.username_input.setPlaceholderText("@username")
+        self.username_input.setPlaceholderText(tr("add_chat_placeholder"))
         layout.addWidget(self.username_input)
 
         buttons = QDialogButtonBox(
@@ -148,6 +149,54 @@ class AddChatDialog(QDialog):
 
     def get_username(self):
         return self.username_input.text().replace("@", "").strip()
+
+
+class AddPromptDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        from core.config import tr
+
+        self.setWindowTitle(tr("add_prompt_title"))
+        self.setFixedSize(400, 320)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(_add_chat_dialog_stylesheet())
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        name_lbl = QLabel(tr("prompt_name_label"))
+        layout.addWidget(name_lbl)
+
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText(tr("prompt_name_placeholder"))
+        layout.addWidget(self.name_input)
+
+        text_lbl = QLabel(tr("prompt_text_label"))
+        layout.addWidget(text_lbl)
+
+        self.text_input = QTextEdit()
+        self.text_input.setPlaceholderText(tr("prompt_text_placeholder"))
+        self.text_input.setStyleSheet(
+            f"background: {palette()['input_bg']}; color: {palette()['input_text']}; "
+            f"border: none; border-radius: 10px; padding: 10px; font-size: 14px;"
+        )
+        layout.addWidget(self.text_input)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("add"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(
+            tr("back")
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_data(self):
+        return self.name_input.text().strip(), self.text_input.toPlainText().strip()
 
 
 def _normalize_message_rows(rows):
@@ -274,6 +323,9 @@ class ChatMessagesView(QScrollArea):
         self.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
+        self.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self._content = QWidget()
         self._layout = QVBoxLayout(self._content)
         self._layout.setSpacing(6)
@@ -302,10 +354,10 @@ class ChatMessagesView(QScrollArea):
             f" background-color: {bg}; border: none;"
             f"}}"
             f"QScrollArea#messagesView QScrollBar:vertical {{"
-            f" width: 6px; background: transparent; margin: {r}px 4px {r}px 0;"
+            f" width: 0px; background: transparent;"
             f"}}"
             f"QScrollArea#messagesView QScrollBar::handle:vertical {{"
-            f" background: {handle}; border-radius: 3px; min-height: 24px;"
+            f" background: transparent;"
             f"}}"
             f"QScrollArea#messagesView QScrollBar::add-line:vertical,"
             f" QScrollArea#messagesView QScrollBar::sub-line:vertical {{"
@@ -564,11 +616,19 @@ class ChatItem(QFrame):
         super().__init__()
         self.user_id = user_id
         self.full_name = name
-        self.name = name if len(name) <= 18 else name[:18] + "..."
+        self.name = name
         self.bot_status = status
         self.is_add_button = is_add_button
         self.parent_app = parent_app
         self.selected = selected
+
+        if not self.is_add_button:
+            limit = 30 if (self.parent_app and self.parent_app.split_visible) else 60
+            if len(self.full_name) > limit:
+                self.name = self.full_name[:limit] + "..."
+            else:
+                self.name = self.full_name
+
         self.initUI()
 
     def initUI(self):
@@ -679,6 +739,17 @@ class ChatItem(QFrame):
             await database.db.commit()
 
         asyncio.run_coroutine_threadsafe(update(), _event_loop())
+
+    def update_name_truncation(self):
+        if self.is_add_button:
+            return
+        limit = 30 if (self.parent_app and self.parent_app.split_visible) else 60
+        if len(self.full_name) > limit:
+            self.name = self.full_name[:limit] + "..."
+        else:
+            self.name = self.full_name
+        if hasattr(self, "name_lbl") and self.name_lbl:
+            self.name_lbl.setText(self.name)
 
     def refresh_theme(self):
         t = palette()
